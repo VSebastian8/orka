@@ -16,32 +16,20 @@ enum Res:
 private class Function[A <: Arg](val f: A => Res)(using val tag: ClassTag[A])
 
 object Function {
-  def apply[A <: Arg, I, R](
-      f: I => R
-  )(using magnetRes: MagnetRes[R], magnetArg: MagnetArg[I, A])(using
-      ClassTag[A]
-  ): Function[A] =
-    magnetRes.apply(magnetArg.apply(f))
-}
+  def apply[R](
+      f: => R
+  )(using magnetRes: MagnetRes[R]): Function[Arg0] =
+    magnetRes.apply((_: Arg0) => f)
 
-// Magnet trait to deal with apply type erasure for Arg wrap
-sealed trait MagnetArg[I, A <: Arg]:
-  def apply[R](f: I => R): (A => R)
+  def apply[R](
+      f: Int => R
+  )(using magnetRes: MagnetRes[R]): Function[Arg1] =
+    magnetRes.apply((x: Arg1) => f(x.a))
 
-// Arg0
-given MagnetArg[Unit, Arg0] with {
-  def apply[R](f: Unit => R): Arg0 => R =
-    (_: Arg0) => f(())
-}
-// Arg1
-given MagnetArg[Int, Arg1] with {
-  def apply[R](f: Int => R): Arg1 => R =
-    (x: Arg1) => f(x.a)
-}
-// Arg2
-given MagnetArg[(Int, Int), Arg2] with {
-  def apply[R](f: ((Int, Int)) => R): Arg2 => R =
-    (x: Arg2) => f(x.a, x.b)
+  def apply[R](
+      f: (Int, Int) => R
+  )(using magnetRes: MagnetRes[R]): Function[Arg2] =
+    magnetRes.apply((x: Arg2) => f(x.a, x.b))
 }
 
 // Magnet trait to deal with apply type erasure for Res wrap
@@ -132,14 +120,11 @@ def first_test(): Unit = {
   def producer(x: Int): (Int, Int) = {
     println("Producer with " + x); (x, x + 1)
   }
-  val prod = Function(producer)
 
-  def consumer(x: (Int, Int)): Int = {
-    println("Consumer with " + x._1 + ", " + x._2); x._1 + x._2
+  def consumer(x: Int, y: Int): Int = {
+    println("Consumer with " + x + ", " + y); x + y
   }
-  val cons = Function(consumer)
 
-  val orka = Orka(prod, cons, Stack(1, 2, 3))
-
+  val orka = Orka(Function(producer), Function(consumer), Stack(1, 2, 3))
   orka.run()
 }

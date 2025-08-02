@@ -13,7 +13,45 @@ enum Res:
   case Res1(a: Int)
   case Res2(a: Int, b: Int)
 
-case class Function[A <: Arg](f: A => Res)(using val tag: ClassTag[A])
+private class Function[A <: Arg](val f: A => Res)(using val tag: ClassTag[A])
+
+object Function {
+  def apply[A <: Arg, R](
+      f: A => R
+  )(using magnet: MagnetFunction[R])(using ClassTag[A]) =
+    magnet.apply(f)
+}
+
+// Magnet trait to deal with apply type erasure
+sealed trait MagnetFunction[R]:
+  def apply[A <: Arg](f: A => R)(using ClassTag[A]): Function[A]
+
+// Res0
+given MagnetFunction[Unit] with {
+  override def apply[A <: Arg](f: A => Unit)(using ClassTag[A]): Function[A] =
+    new Function((x: A) => {
+      f(x); Res.Res0
+    })
+}
+
+// Res1
+given MagnetFunction[Int] with {
+  override def apply[A <: Arg](f: A => Int)(using ClassTag[A]): Function[A] =
+    new Function((x: A) => {
+      Res.Res1(f(x))
+    })
+}
+
+// Res2
+given MagnetFunction[(Int, Int)] with {
+  override def apply[A <: Arg](
+      f: A => (Int, Int)
+  )(using ClassTag[A]): Function[A] =
+    new Function((x: A) => {
+      val res = f(x)
+      Res.Res2(res._1, res._2)
+    })
+}
 
 def length(fn: Function[?]): Int =
   fn.tag.runtimeClass match
@@ -73,17 +111,17 @@ object Orka {
 def first_test(): Unit = {
   // def producer(x: Int): (Int, Int) =
   //   (x, x + 1)
-  val producerF: Arg1 => Res = x => {
-    println("Producer with " + x); Res.Res2(x.a, x.a + 1)
+  val producer: Arg1 => (Int, Int) = x => {
+    println("Producer with " + x); (x.a, x.a + 1)
   }
-  val prod = Function(producerF)
+  val prod = Function(producer)
 
   // def consumer(x: Int, y: Int): (Int) =
   //   x + y
-  val consumerF: Arg2 => Res = x => {
-    println("Consumer with " + x); Res.Res1(x.a + x.b)
+  val consumer: Arg2 => Int = x => {
+    println("Consumer with " + x); x.a + x.b
   }
-  val cons = Function(consumerF)
+  val cons = Function(consumer)
 
   val orka = Orka(prod, cons, Stack(1, 2, 3))
 

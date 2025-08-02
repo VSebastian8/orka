@@ -16,34 +16,54 @@ enum Res:
 private class Function[A <: Arg](val f: A => Res)(using val tag: ClassTag[A])
 
 object Function {
-  def apply[A <: Arg, R](
-      f: A => R
-  )(using magnet: MagnetFunction[R])(using ClassTag[A]) =
-    magnet.apply(f)
+  def apply[A <: Arg, I, R](
+      f: I => R
+  )(using magnetRes: MagnetRes[R], magnetArg: MagnetArg[I, A])(using
+      ClassTag[A]
+  ): Function[A] =
+    magnetRes.apply(magnetArg.apply(f))
 }
 
-// Magnet trait to deal with apply type erasure
-sealed trait MagnetFunction[R]:
+// Magnet trait to deal with apply type erasure for Arg wrap
+sealed trait MagnetArg[I, A <: Arg]:
+  def apply[R](f: I => R): (A => R)
+
+// Arg0
+given MagnetArg[Unit, Arg0] with {
+  def apply[R](f: Unit => R): Arg0 => R =
+    (_: Arg0) => f(())
+}
+// Arg1
+given MagnetArg[Int, Arg1] with {
+  def apply[R](f: Int => R): Arg1 => R =
+    (x: Arg1) => f(x.a)
+}
+// Arg2
+given MagnetArg[(Int, Int), Arg2] with {
+  def apply[R](f: ((Int, Int)) => R): Arg2 => R =
+    (x: Arg2) => f(x.a, x.b)
+}
+
+// Magnet trait to deal with apply type erasure for Res wrap
+sealed trait MagnetRes[R]:
   def apply[A <: Arg](f: A => R)(using ClassTag[A]): Function[A]
 
 // Res0
-given MagnetFunction[Unit] with {
-  override def apply[A <: Arg](f: A => Unit)(using ClassTag[A]): Function[A] =
+given MagnetRes[Unit] with {
+  def apply[A <: Arg](f: A => Unit)(using ClassTag[A]): Function[A] =
     new Function((x: A) => {
       f(x); Res.Res0
     })
 }
-
 // Res1
-given MagnetFunction[Int] with {
-  override def apply[A <: Arg](f: A => Int)(using ClassTag[A]): Function[A] =
+given MagnetRes[Int] with {
+  def apply[A <: Arg](f: A => Int)(using ClassTag[A]): Function[A] =
     new Function((x: A) => {
       Res.Res1(f(x))
     })
 }
-
 // Res2
-given MagnetFunction[(Int, Int)] with {
+given MagnetRes[(Int, Int)] with {
   override def apply[A <: Arg](
       f: A => (Int, Int)
   )(using ClassTag[A]): Function[A] =
@@ -109,17 +129,13 @@ object Orka {
 
 @main
 def first_test(): Unit = {
-  // def producer(x: Int): (Int, Int) =
-  //   (x, x + 1)
-  val producer: Arg1 => (Int, Int) = x => {
-    println("Producer with " + x); (x.a, x.a + 1)
+  def producer(x: Int): (Int, Int) = {
+    println("Producer with " + x); (x, x + 1)
   }
   val prod = Function(producer)
 
-  // def consumer(x: Int, y: Int): (Int) =
-  //   x + y
-  val consumer: Arg2 => Int = x => {
-    println("Consumer with " + x); x.a + x.b
+  def consumer(x: (Int, Int)): Int = {
+    println("Consumer with " + x._1 + ", " + x._2); x._1 + x._2
   }
   val cons = Function(consumer)
 

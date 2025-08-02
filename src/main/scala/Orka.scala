@@ -61,15 +61,33 @@ given MagnetRes[(Int, Int)] with {
     })
 }
 
+// Magnet trait to handle union cleanly
+sealed trait MagnetFunction[F]:
+  def apply(f: F): Function[? <: Arg]
+
+// Arg0
+given [R: MagnetRes] => MagnetFunction[Function0[R]]:
+  def apply(f: () => R): Function[Arg0] = Function(f())
+
+// Arg1
+given [R: MagnetRes] => MagnetFunction[Function1[Int, R]]:
+  def apply(f: Int => R): Function[Arg1] = Function(f)
+
+// Arg2
+given [R: MagnetRes] => MagnetFunction[Function2[Int, Int, R]]:
+  def apply(f: (Int, Int) => R): Function[Arg2] =
+    Function(f)
+
+
 def length(fn: Function[?]): Int =
   fn.tag.runtimeClass match
     case c if c == summon[ClassTag[Arg0]].runtimeClass => 0
     case c if c == summon[ClassTag[Arg1]].runtimeClass => 1
     case c if c == summon[ClassTag[Arg2]].runtimeClass => 2
 
-class Orka[A <: Arg, B <: Arg](
-    val producer: Function[A],
-    val consumer: Function[B],
+class Orka(
+    val producer: Function[?],
+    val consumer: Function[?],
     var resources: Stack[Int]
 ) {
   private def getRes(fn: Function[? <: Arg]): Res = {
@@ -107,24 +125,28 @@ class Orka[A <: Arg, B <: Arg](
 }
 
 object Orka {
-  def apply[A <: Arg, B <: Arg](
-      f: Function[A],
-      g: Function[B],
+  def apply[FA, FB, RA, RB](
+      f: FA,
+      g: FB,
       l: Stack[Int]
-  ): Orka[A, B] =
-    new Orka(f, g, l)
+  )(using mga: MagnetFunction[FA], mgb: MagnetFunction[FB]): Orka =
+    new Orka(mga.apply(f), mgb.apply(g), l)
 }
 
 @main
 def first_test(): Unit = {
+  def prod(): Int = {println("Nothin to produce"); 2}
+
   def producer(x: Int): (Int, Int) = {
-    println("Producer with " + x); (x, x + 1)
+    println("Producer with " + x); 
+    (x, x + 1)
   }
 
   def consumer(x: Int, y: Int): Int = {
-    println("Consumer with " + x + ", " + y); x + y
+    println("Consumer with " + x + ", " + y); 
+    x + y
   }
 
-  val orka = Orka(Function(producer), Function(consumer), Stack(1, 2, 3))
+  val orka = Orka(producer, consumer, Stack(1, 2, 3))
   orka.run()
 }

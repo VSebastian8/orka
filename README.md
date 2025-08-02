@@ -6,10 +6,19 @@ This is an opportunity for learning reflection based techniques in Scala for imp
 
 ### First specification
 
-In this first DSL, there will be only two functions, a `producer` and a `consumer`. They will both have a **variable amount** `Int` arguments and they will return one or more `Ints`. The orchestrator will have a list of integers that will be supplied to the functions nondeterministically, but only when there will be enough arguments in the list for a function to activate.
+In this first DSL, there will be only two functions, a `producer` and a `consumer`. They will both have a **variable amount** of `Int` arguments and they will return one or more `Ints`. The orchestrator will have a list of integers that will be supplied to the functions nondeterministically, but only when there will be enough arguments in the list for a function to activate.
 
 ```scala
-val ork =
-  Orka(Function(x => (x, x + 1)), Function((x, y) => x + y), Stack(1, 2, 3))
-ork.run()
+def producer(x: Int): (Int, Int) = {
+  println("Producer with " + x);
+  (x, x + 1)
+}
+
+def consumer(x: Int, y: Int): Int = {
+  println("Consumer with " + x + ", " + y);
+  x + y
+}
+
+val orka = Orka(producer, consumer, Stack(1, 2, 3))
+orka.run()
 ```

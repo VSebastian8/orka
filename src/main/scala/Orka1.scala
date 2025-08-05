@@ -1,6 +1,9 @@
+package orka
+
 import scala.collection.mutable.Stack
 import scala.reflect.ClassTag
 import scala.annotation.tailrec
+import scala.quoted.*
 
 sealed trait Arg
 
@@ -85,7 +88,7 @@ def length(fn: Function[?]): Int =
     case c if c == summon[ClassTag[Arg1]].runtimeClass => 1
     case c if c == summon[ClassTag[Arg2]].runtimeClass => 2
 
-class Orka(
+class Orka1(
     val producer: Function[?],
     val consumer: Function[?],
     var resources: Stack[Int]
@@ -124,29 +127,43 @@ class Orka(
   }
 }
 
-object Orka {
+object Orka1 {
   def apply[FA, FB, RA, RB](
       f: FA,
       g: FB,
       l: Stack[Int]
-  )(using mga: MagnetFunction[FA], mgb: MagnetFunction[FB]): Orka =
-    new Orka(mga.apply(f), mgb.apply(g), l)
+  )(using mga: MagnetFunction[FA], mgb: MagnetFunction[FB]): Orka1 =
+    new Orka1(mga.apply(f), mgb.apply(g), l)
 }
 
-@main
-def first_test(): Unit = {
-  def prod(): Int = {println("Nothin to produce"); 2}
+def inspectArity(f: Expr[AnyRef])(using Quotes): Expr[Unit] = {
+  import quotes.reflect.*
 
-  def producer(x: Int): (Int, Int) = {
-    println("Producer with " + x); 
-    (x, x + 1)
+  def getParams(term: Term): Option[List[ValDef]] = {
+    term match {
+      case Lambda(params, _) => Some(params)
+      case Inlined(_, _, expr) => getParams(expr)
+      case Block(_, expr) => getParams(expr)
+      case _ => None
+      }
+  }
+ 
+  val params = getParams(f.asTerm).get
+  
+  val type_errors = 
+  params.filter{ p =>
+      val tpe = p.tpt.tpe
+      !(tpe =:= TypeRepr.of[Int])
+  }.map {
+    p =>
+      s"${p.name} is not an Int but ${p.tpt.tpe.show}"
+  }
+  if (!type_errors.isEmpty){
+    report.error(type_errors.mkString("\n"))
   }
 
-  def consumer(x: Int, y: Int): Int = {
-    println("Consumer with " + x + ", " + y); 
-    x + y
-  }
+  '{println("Function has arity " + ${Expr(params.size)})} 
+ }
 
-  val orka = Orka(producer, consumer, Stack(1, 2, 3))
-  orka.run()
-}
+inline def arity(inline f: AnyRef): Unit = 
+  ${inspectArity('f)} 

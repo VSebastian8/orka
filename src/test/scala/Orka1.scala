@@ -23,9 +23,20 @@ def orka1_test(): Unit = {
 
 @main
 def orka1_macro_test(): Unit = {
+  val f1: (Int, Int) => Int = (a, b) => a * b
+  inline def f2(a: Int, b: Int, c: Int) = {
+    println("hi there")
+    (c, b, a)
+  }
+
+  arity(f2)
+  arity((_: Int) => (1, 0, 0, 1))
   arity(() => (2, 3))
   arity((x: Int) => (x, x))
-  arity((z: Int, y: Int) => "hey")
   arity((x: Int, y: Int, z: Int) => x + y + z)
+
+  // Compile-time Errors
+  // arity(f1)
+  // arity((z: Int, y: Int) => "hey")
   // arity((x: String, y: Boolean) => ())
 }

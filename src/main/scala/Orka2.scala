@@ -16,7 +16,7 @@ def inspectDefArity(body: Expr[Unit])(using Quotes): Expr[Unit] = {
       name: String,
       args: List[ValDef],
       rets: List[TypeRepr]
-  ): Option[String] = {
+  ): Option[List[String]] = {
 
     val args_errors =
       args
@@ -25,7 +25,7 @@ def inspectDefArity(body: Expr[Unit])(using Quotes): Expr[Unit] = {
           !(tpe =:= TypeRepr.of[Int])
         }
         .map { param =>
-          s"Argument ${param.name} for function $name is not an Int but ${param.tpt.tpe.show}"
+          s"Argument ${param.name} is not an Int but ${param.tpt.tpe.show}"
         }
 
     val rets_errors =
@@ -34,13 +34,13 @@ def inspectDefArity(body: Expr[Unit])(using Quotes): Expr[Unit] = {
           !(tpe =:= TypeRepr.of[Int])
         }
         .map { (tpe, index) =>
-          s"Return type of function $name at index ${index} is not an Int but ${tpe.show}"
+          s"Return type at index ${index} is not an Int but ${tpe.show}"
         }
 
     val all_errors = args_errors ++ rets_errors
 
     if (!all_errors.isEmpty) {
-      Some(all_errors.mkString("\n"))
+      Some(all_errors)
     } else {
       None
     }
@@ -54,7 +54,7 @@ def inspectDefArity(body: Expr[Unit])(using Quotes): Expr[Unit] = {
     val rets = extractTupleElements(ret)
     handleErrors(name, args, rets) match {
       case Some(errors) =>
-        Left(errors)
+        Left(s"Errors for function $name:\n" + errors.mkString("\n"))
       case None =>
         Right(s"Function $name has arity ${args.size} -> ${rets.size}")
     }
@@ -68,7 +68,7 @@ def inspectDefArity(body: Expr[Unit])(using Quotes): Expr[Unit] = {
       }
     )
     if (!errors.isEmpty) {
-      report.error(errors.mkString("\n"));
+      report.error(errors.mkString("\n\n"));
       '{}
     } else {
       val messages = results
@@ -87,26 +87,19 @@ def inspectDefArity(body: Expr[Unit])(using Quotes): Expr[Unit] = {
     case Inlined(_, _, Block(stats, _)) =>
       val results = stats.map {
         case DefDef(name, params, returns, body) =>
-          params.head match {
-            case TermParamClause(args) =>
-              handleMethod(name, args, returns.tpe)
-            case _ => Left("Could not parse method arguments")
-          }
+          val args = params
+            .flatMap {
+              case TermParamClause(argsClause) => argsClause
+              case _ => report.error("Could not parse method arguments"); List()
+            }
+          handleMethod(name, args, returns.tpe)
+
         case t: Term =>
           Left("Expected def method, found " + t.show)
       }
       handleResults(results)
-    //   report.error(stats.map(_.show).mkString(" ||| "))
     case t: Term => report.error("Expected statements, found " + t.show); '{}
   }
-
-//   getParams(body.asTerm) match {
-//     case Some((args, ret)) => handleResults(args, extractTupleElements(ret))
-//     case None =>
-//       report.error(
-//         s"Could not extract the arguments types from ${body.show}. Try passing in a `lambda` or an `inline def method`"
-//       ); '{}
-//   }
 }
 
 inline def defArity(inline f: Unit): Unit =

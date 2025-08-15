@@ -3,7 +3,6 @@ package orka
 import scala.collection.mutable.Stack
 import scala.reflect.ClassTag
 import scala.annotation.tailrec
-import scala.quoted.*
 
 sealed trait Arg
 
@@ -135,61 +134,3 @@ object Orka1 {
   )(using mga: MagnetFunction[FA], mgb: MagnetFunction[FB]): Orka1 =
     new Orka1(mga.apply(f), mgb.apply(g), l)
 }
-
-def inspectArity(f: Expr[AnyRef])(using Quotes): Expr[Unit] = {
-  import quotes.reflect.*
-
-  def getParams(term: Term): Option[(List[ValDef], TypeRepr)] = {
-    term match {
-      case Lambda(params, body) =>  Some((params, body.tpe.widen))
-      case Inlined(_, _, expr) => getParams(expr)
-      case Block(_, expr) => getParams(expr)
-      case _ => None
-      }
-  }
- 
-  def extractTupleElements(t: TypeRepr): List[TypeRepr] = {
-    t.dealias match {
-      case AppliedType(tp, args) if tp <:< TypeRepr.of[Tuple] =>
-        args
-      case _ => List(t)
-    }
-  }
-
-  def handleResults(args: List[ValDef], rets: List[TypeRepr]) = {
-
-    val args_errors = 
-      args.filter{ param =>
-        val tpe = param.tpt.tpe
-        !(tpe =:= TypeRepr.of[Int])
-    }.map {
-      param =>
-        s"Argument ${param.name} is not an Int but ${param.tpt.tpe.show}"
-    }
-    
-    val rets_errors = 
-      rets.zipWithIndex.filter {
-        (tpe, _) =>
-        !(tpe =:= TypeRepr.of[Int])
-      }.map {
-      (tpe, index) =>
-        s"Return type in ${index}th position is not an Int but ${tpe.show}"
-    }
-    
-    val all_errors = args_errors ++ rets_errors
-
-    if (!all_errors.isEmpty){
-      report.error(all_errors.mkString("\n"))
-    }
-
-    '{println("Function has arity " + ${Expr(args.size)} + " -> " + ${Expr(rets.size)})} 
-  
-  }
-
-  getParams(f.asTerm) match {
-    case Some((args, ret)) => handleResults(args, extractTupleElements(ret))
-    case None => report.error(s"Could not extract the arguments types from ${f.show}. Try passing in a `lambda` or an `inline def method`"); '{}
-  }}
-
-inline def arity(inline f: AnyRef): Unit = 
-  ${inspectArity('f)} 

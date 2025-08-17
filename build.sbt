@@ -5,8 +5,8 @@ lazy val root = project
   .settings(
     name := "orka",
     version := "0.1.0-SNAPSHOT",
-
     scalaVersion := scala3Version,
-
+    scalacOptions += "-Xprint:typer",
+    logLevel := Level.Debug,
     libraryDependencies += "org.scalameta" %% "munit" % "1.0.0" % Test
   )

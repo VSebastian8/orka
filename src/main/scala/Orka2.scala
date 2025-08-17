@@ -1,12 +1,15 @@
 package orka
 import scala.quoted.*
+import scala.collection.immutable.Queue
+import scala.annotation.tailrec
+import scala.util.Random
 
-def orka2Impl(code: Expr[Unit])(using Quotes): Expr[Unit] = {
+def orka2Impl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
   import quotes.reflect.*
 
   case class ListLambda(
-      arity: Int,
-      name: String,
+      arity: Expr[Int],
+      name: Expr[String],
       lambda: Expr[List[Int] => List[Int]]
   )
 
@@ -124,17 +127,40 @@ def orka2Impl(code: Expr[Unit])(using Quotes): Expr[Unit] = {
   }
 
   // Simple output function for testing
-  def showLambdas(lambdas: List[ListLambda]): Expr[Unit] = {
-    val prints =
-      lambdas.map(lam =>
-        '{
-          println("The function " + ${ Expr(lam.name) } + " has arity " + ${
-            Expr(lam.arity)
-          } + ":")
-          println(${ lam.lambda }(List.fill(${ Expr(lam.arity) })(0)))
-        }
+  def runOrka(lambdas: List[ListLambda]): Expr[Queue[Int] => Unit] = {
+
+    val funs: Expr[List[List[Int] => List[Int]]] =
+      Expr.ofList(
+        lambdas.map(l => '{ (xs) => ${ l.lambda }(xs) })
       )
-    Expr.block(prints, '{})
+    val arities = Expr.ofList(lambdas.map(_.arity))
+    val names = Expr.ofList(lambdas.map(_.name))
+    // Final generated block of code
+    '{ (start: Queue[Int]) =>
+      val n = $arities.length
+      {
+        @tailrec
+        def run(res: Queue[Int]): Unit = {
+          if (res.isEmpty)
+            return
+          // pick a random function from the list
+          val index = Random().between(0, n)
+          val needed = $arities(index)
+          if (needed > res.length) {
+            run(res)
+          } else {
+            println("Current resources " + res + "\n")
+            Thread.sleep(500)
+            // We have enough resources to call the function
+            println(s"Chosen function ${$names(index)}")
+            val results = $funs(index)(res.take(needed).toList)
+            run(res.drop(needed).enqueueAll(results))
+          }
+        }
+
+        run(start)
+      }
+    }
   }
 
   code.asTerm match {
@@ -161,17 +187,17 @@ def orka2Impl(code: Expr[Unit])(using Quotes): Expr[Unit] = {
             }
 
             ListLambda(
-              inputArity,
-              name,
+              Expr(inputArity),
+              Expr(name),
               listifyMethod(args.map(_.symbol), body, outputArity)
             )
           case t: Term =>
             report.throwError("Expected def method, found " + t.show);
         }
-      showLambdas(lambdas)
+      runOrka(lambdas)
     case t: Term =>
       report.throwError("Expected statements, found " + t.show);
   }
 }
 
-inline def orka2(inline code: Unit): Unit = ${ orka2Impl('code) }
+inline def orka2(inline code: Unit): Queue[Int] => Unit = ${ orka2Impl('code) }

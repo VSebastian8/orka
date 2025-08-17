@@ -2,6 +2,7 @@ import scala.collection.mutable.Stack
 import orka.Orka1
 import orka.given
 import orka.orka2
+import scala.collection.immutable.Queue
 
 @main
 def orka1_test(): Unit = {
@@ -23,8 +24,9 @@ def orka1_test(): Unit = {
 
 @main
 def orka2_test(): Unit = {
-  orka2 {
-    def producer(x: Int) = (x, x + 1)
+  val run = orka2 {
+    def producer(x: Int) = (x, x)
     def consumer(x: Int, y: Int) = x + y
   }
+  run(Queue(1, 1))
 }

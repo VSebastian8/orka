@@ -5,7 +5,10 @@ import scala.collection.immutable.Queue
 def orka_test(): Unit = {
   val run = orka {
     def producer(x: Int) = (x, x)
-    def consumer(x: Int, y: Int) = x + y
+    def consumer(x: Int, y: Int) = {
+      if (x == y) x + y
+      else x
+    }
   }
   run(Queue(1, 1))
 }

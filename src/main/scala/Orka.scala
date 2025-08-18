@@ -4,23 +4,25 @@ import scala.collection.immutable.Queue
 import scala.annotation.tailrec
 import scala.util.Random
 
-def orkaImpl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
-  import quotes.reflect.*
-
-  case class ListLambda(
-      arity: Expr[Int],
-      name: Expr[String],
-      lambda: Expr[List[Int] => List[Int]]
-  )
+class OrkaUtils(using val q: Quotes):
+  import q.reflect.*
 
   // (Int, String, Bool) -> [Int, String, Bool]
-  def extractReturnTypes(t: TypeRepr): List[TypeRepr] = {
+  def extractReturnTypes(
+      t: quotes.reflect.TypeRepr
+  )(using Quotes): List[TypeRepr] = {
     t.dealias match {
       case AppliedType(tp, args) if tp <:< TypeRepr.of[Tuple] =>
         args
       case _ => List(t)
     }
   }
+
+  case class ListLambda(
+      arity: Expr[Int],
+      name: Expr[String],
+      lambda: Expr[List[Int] => List[Int]]
+  )
 
   // Returns compile errors (if any)
   def validate(name: String, args: List[ValDef], rets: List[TypeRepr]): Unit = {
@@ -159,7 +161,6 @@ def orkaImpl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
 
   // Simple output function for testing
   def runOrka(lambdas: List[ListLambda]): Expr[Queue[Int] => Unit] = {
-
     val funs: Expr[List[List[Int] => List[Int]]] =
       Expr.ofList(
         lambdas.map(l => '{ (xs) => ${ l.lambda }(xs) })
@@ -194,15 +195,21 @@ def orkaImpl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
     }
   }
 
-  code.asTerm match {
-    case Inlined(_, _, Block(stats, _)) =>
-      val lambdas =
-        stats.map(parseStat)
+  def parse(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
+    code.asTerm match {
+      case Inlined(_, _, Block(stats, _)) =>
+        val lambdas =
+          stats.map(parseStat)
 
-      runOrka(lambdas)
-    case t: Term =>
-      report.throwError("Expected statements, found " + t.show);
+        runOrka(lambdas)
+      case t: Term =>
+        report.throwError("Expected statements, found " + t.show);
+    }
   }
+
+def orkaImpl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
+  val utils = new OrkaUtils()
+  utils.parse(code)
 }
 
 inline def orka(inline code: Unit): Queue[Int] => Unit = ${ orkaImpl('code) }

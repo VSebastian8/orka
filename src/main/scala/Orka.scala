@@ -4,7 +4,7 @@ import scala.collection.immutable.Queue
 import scala.annotation.tailrec
 import scala.util.Random
 
-def orka2Impl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
+def orkaImpl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
   import quotes.reflect.*
 
   case class ListLambda(
@@ -126,6 +126,37 @@ def orka2Impl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
     ).asExprOf[List[Int] => List[Int]]
   }
 
+  // Parse a def statement
+  def parseStat(stat: Statement) =
+    stat match {
+      case fun @ DefDef(name, params, returns, _) =>
+        val args = params
+          .flatMap {
+            case TermParamClause(argsClause) => argsClause
+            case _ =>
+              report.throwError(
+                s"Method $name has wrong parameters"
+              )
+          }
+        val rets = extractReturnTypes(returns.tpe)
+        validate(name, args, rets)
+
+        val inputArity = args.length
+        val outputArity = rets.length
+
+        val body: Term = fun.rhs.getOrElse {
+          report.throwError(s"Method $name has no body")
+        }
+
+        ListLambda(
+          Expr(inputArity),
+          Expr(name),
+          listifyMethod(args.map(_.symbol), body, outputArity)
+        )
+      case t: Term =>
+        report.throwError("Expected def method, found " + t.show);
+    }
+
   // Simple output function for testing
   def runOrka(lambdas: List[ListLambda]): Expr[Queue[Int] => Unit] = {
 
@@ -166,38 +197,12 @@ def orka2Impl(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
   code.asTerm match {
     case Inlined(_, _, Block(stats, _)) =>
       val lambdas =
-        stats.map {
-          case fun @ DefDef(name, params, returns, _) =>
-            val args = params
-              .flatMap {
-                case TermParamClause(argsClause) => argsClause
-                case _ =>
-                  report.throwError(
-                    s"Method $name has wrong parameters"
-                  )
-              }
-            val rets = extractReturnTypes(returns.tpe)
-            validate(name, args, rets)
+        stats.map(parseStat)
 
-            val inputArity = args.length
-            val outputArity = rets.length
-
-            val body: Term = fun.rhs.getOrElse {
-              report.throwError(s"Method $name has no body")
-            }
-
-            ListLambda(
-              Expr(inputArity),
-              Expr(name),
-              listifyMethod(args.map(_.symbol), body, outputArity)
-            )
-          case t: Term =>
-            report.throwError("Expected def method, found " + t.show);
-        }
       runOrka(lambdas)
     case t: Term =>
       report.throwError("Expected statements, found " + t.show);
   }
 }
 
-inline def orka2(inline code: Unit): Queue[Int] => Unit = ${ orka2Impl('code) }
+inline def orka(inline code: Unit): Queue[Int] => Unit = ${ orkaImpl('code) }

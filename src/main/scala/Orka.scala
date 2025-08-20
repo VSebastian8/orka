@@ -128,39 +128,53 @@ class OrkaUtils(using val q: Quotes):
     ).asExprOf[List[Int] => List[Int]]
   }
 
-  // Parse a def statement
-  def parseStat(stat: Statement) =
-    stat match {
-      case fun @ DefDef(name, params, returns, _) =>
-        val args = params
-          .flatMap {
-            case TermParamClause(argsClause) => argsClause
-            case _ =>
-              report.throwError(
-                s"Method $name has wrong parameters"
-              )
-          }
-        val rets = extractReturnTypes(returns.tpe)
-        validate(name, args, rets)
+  // Parse the statements, extracting the places and transitions
+  def parseStats(
+      stats: List[Statement],
+      places: List[String],
+      transitions: List[ListLambda]
+  ): (List[String], List[ListLambda]) =
+    stats match {
+      case Nil => (places, transitions)
+      case head :: next =>
+        head match {
+          case fun @ DefDef(name, params, returns, _) =>
+            val args = params
+              .flatMap {
+                case TermParamClause(argsClause) => argsClause
+                case _ =>
+                  report.throwError(
+                    s"Method $name has wrong parameters"
+                  )
+              }
+            val rets = extractReturnTypes(returns.tpe)
+            validate(name, args, rets)
 
-        val inputArity = args.length
-        val outputArity = rets.length
+            val inputArity = args.length
+            val outputArity = rets.length
 
-        val body: Term = fun.rhs.getOrElse {
-          report.throwError(s"Method $name has no body")
+            val body: Term = fun.rhs.getOrElse {
+              report.throwError(s"Method $name has no body")
+            }
+
+            val tr = ListLambda(
+              Expr(inputArity),
+              Expr(name),
+              listifyMethod(args.map(_.symbol), body, outputArity)
+            )
+            parseStats(next, places, tr :: transitions)
+          case TypeDef(place, _) =>
+            parseStats(next, place :: places, transitions)
+          case t =>
+            report.throwError("Expected def method, found " + t.show);
         }
-
-        ListLambda(
-          Expr(inputArity),
-          Expr(name),
-          listifyMethod(args.map(_.symbol), body, outputArity)
-        )
-      case t: Term =>
-        report.throwError("Expected def method, found " + t.show);
     }
 
   // Simple output function for testing
-  def runOrka(lambdas: List[ListLambda]): Expr[Queue[Int] => Unit] = {
+  def runOrka(
+      places: List[String],
+      lambdas: List[ListLambda]
+  ): Expr[Queue[Int] => Unit] = {
     val funs: Expr[List[List[Int] => List[Int]]] =
       Expr.ofList(
         lambdas.map(l => '{ (xs) => ${ l.lambda }(xs) })
@@ -169,39 +183,39 @@ class OrkaUtils(using val q: Quotes):
     val names = Expr.ofList(lambdas.map(_.name))
     // Final generated block of code
     '{ (start: Queue[Int]) =>
+      println("Places: " + ${ Expr(places.mkString(", ")) })
       val n = $arities.length
-      {
-        @tailrec
-        def run(res: Queue[Int]): Unit = {
-          if (res.isEmpty)
-            return
-          // pick a random function from the list
-          val index = Random().between(0, n)
-          val needed = $arities(index)
-          if (needed > res.length) {
-            run(res)
-          } else {
-            println("Current resources " + res + "\n")
-            Thread.sleep(500)
-            // We have enough resources to call the function
-            println(s"Chosen function ${$names(index)}")
-            val results = $funs(index)(res.take(needed).toList)
-            run(res.drop(needed).enqueueAll(results))
-          }
-        }
 
-        run(start)
+      @tailrec
+      def run(res: Queue[Int]): Unit = {
+        if (res.isEmpty)
+          return
+        // pick a random function from the list
+        val index = Random().between(0, n)
+        val needed = $arities(index)
+        if (needed > res.length) {
+          run(res)
+        } else {
+          println("Current resources " + res + "\n")
+          Thread.sleep(500)
+          // We have enough resources to call the function
+          println(s"Chosen function ${$names(index)}")
+          val results = $funs(index)(res.take(needed).toList)
+          run(res.drop(needed).enqueueAll(results))
+        }
       }
+
+      run(start)
     }
   }
 
   def parse(code: Expr[Unit])(using Quotes): Expr[Queue[Int] => Unit] = {
     code.asTerm match {
       case Inlined(_, _, Block(stats, _)) =>
-        val lambdas =
-          stats.map(parseStat)
+        val (places, transitions) =
+          parseStats(stats, List(), List())
 
-        runOrka(lambdas)
+        runOrka(places, transitions)
       case t: Term =>
         report.throwError("Expected statements, found " + t.show);
     }

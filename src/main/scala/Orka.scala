@@ -8,13 +8,30 @@ class OrkaUtils(using val q: Quotes):
   import q.reflect.*
 
   // (Int, String, Bool) -> [Int, String, Bool]
-  def extractReturnTypes(
-      t: quotes.reflect.TypeRepr
-  )(using Quotes): List[TypeRepr] = {
-    t.dealias match {
-      case AppliedType(tp, args) if tp <:< TypeRepr.of[Tuple] =>
-        args
-      case _ => List(t)
+  // def extractReturnTypes(
+  //     t: quotes.reflect.TypeRepr
+  // )(using Quotes): List[TypeRepr] = {
+  //   t.dealias match {
+  //     case AppliedType(tp, args) if tp <:< TypeRepr.of[Tuple] => {
+  //       args
+  //     }
+  //     case _ => List(t)
+  //   }
+  // }
+
+  def extractReturnTypes(t: TypeTree)(using Quotes): List[TypeTree] = {
+    t match {
+      case Applied(tycon, args) if tycon.tpe <:< TypeRepr.of[Tuple] =>
+        args.map {
+          case tt: TypeTree => tt
+          case other =>
+            report.errorAndAbort(
+              s"Unexpected type argument: ${other.show}",
+              other.pos
+            )
+        }
+      case _ =>
+        List(t)
     }
   }
 
@@ -24,33 +41,53 @@ class OrkaUtils(using val q: Quotes):
       lambda: Expr[List[Int] => List[Int]]
   )
 
-  // Returns compile errors (if any)
-  def validate(name: String, args: List[ValDef], rets: List[TypeRepr]): Unit = {
-    val typeErrors = argumentErrors(args) ++ returnErrors(rets)
-    if (!typeErrors.isEmpty) {
-      report.throwError(
-        s"Errors for function $name:\n" + typeErrors.mkString("\n")
-      )
-    }
+  // Throw compile errors for the function's types
+  def validate(
+      name: String,
+      args: List[ValDef],
+      rets: List[TypeTree],
+      places: List[String]
+  ): Unit = {
+    argumentErrors(args, places)
+    returnErrors(rets, places)
   }
 
   // All arguments need to have the type Int
-  def argumentErrors(args: List[ValDef]): List[String] =
-    args
-      .filterNot(_.tpt.tpe =:= TypeRepr.of[Int])
-      .map(v =>
-        "Error at Argument " + v.name + ": Required - Int, Found - " + v.tpt.tpe.show
-      )
+  def argumentErrors(args: List[ValDef], places: List[String]): Unit =
+    args.foreach((arg => {
+      arg match {
+        case ValDef(arg_name, arg_type, _) =>
+          arg_type match {
+            case TypeIdent(place) =>
+              if !places.contains(place)
+              then
+                report.error(
+                  s"Error for argument $arg_name: required place, found $place",
+                  arg.pos
+                )
+            case other =>
+              report.error(
+                s"Error for argument $arg_name, expected type, found ${other
+                    .toString()}",
+                arg.pos
+              )
+          }
+      }
+    }))
 
-  // All return types need to be Int
-  def returnErrors(rets: List[TypeRepr]) =
-    rets.zipWithIndex
-      .filterNot { (tpe, _) =>
-        (tpe =:= TypeRepr.of[Int])
+  // All return types need to be a place
+  def returnErrors(rets: List[TypeTree], places: List[String]): Unit =
+    rets.zipWithIndex.foreach { (ret, index) =>
+      {
+        val place = ret.tpe.typeSymbol.name
+        if !places.contains(place)
+        then
+          report.error(
+            s"Error for return type ${index}: required place, found $place",
+            ret.pos
+          )
       }
-      .map { (tpe, index) =>
-        s"Return type at index ${index} is not an Int but ${tpe.show}"
-      }
+    }
 
   // Transform the method into a lambda function that takes its arguments as a List and returns a List instead of a Tuple
   def listifyMethod(
@@ -147,8 +184,8 @@ class OrkaUtils(using val q: Quotes):
                     s"Method $name has wrong parameters"
                   )
               }
-            val rets = extractReturnTypes(returns.tpe)
-            validate(name, args, rets)
+            val rets = extractReturnTypes(returns)
+            validate(name, args, rets, places)
 
             val inputArity = args.length
             val outputArity = rets.length

@@ -1,9 +1,13 @@
 package orka
 import scala.quoted.*
 
-def orkaImpl(code: Expr[Unit])(using Quotes): Expr[Unit] = {
-  val parser = OrkaParser()
-  import parser.q.reflect.*
+class Orka(elems: Map[String, Seq[Any] => Any]) extends Selectable:
+  def applyDynamic(name: String)(args: Any*): Any = elems(name)(args)
+
+def orkaImpl(code: Expr[Unit])(using q: Quotes): Expr[Any] = {
+  import q.reflect.*
+  val parser = OrkaParser[q.type](using q)
+  val net = OrkaNet[q.type](using q)
 
   code.asTerm match {
     case Inlined(_, _, Block(stats, _)) =>
@@ -38,11 +42,44 @@ def orkaImpl(code: Expr[Unit])(using Quotes): Expr[Unit] = {
         )
         println("producer(2) = " + ${ callTerm.asExprOf[Any] })
       }
-      Block(transitions.map(_.fun), rest.asTerm).asExprOf[Unit]
+
+      val typeDefs: List[Statement] =
+        places.map(_.td.changeOwner(Symbol.spliceOwner))
+      val funs: List[Statement] =
+        transitions.map(_.fun.changeOwner(Symbol.spliceOwner))
+
+      val pairs: List[Expr[(String, Seq[Any] => Any)]] =
+        transitions.map(t =>
+          '{ (${ Expr(t.fun.name) }, ${ net.buildAdapter(t.fun) }) }
+        )
+
+      val mapExpr: Expr[Map[String, Seq[Any] => Any]] = '{
+        Map(${ Varargs(pairs) }*)
+      }
+      val orcaExpr: Expr[Orka] = '{ Orka($mapExpr) }
+
+      val refinedType: TypeRepr = transitions.foldLeft(TypeRepr.of[Orka]) {
+        (acc, t) =>
+          val pTypes =
+            t.fun.termParamss.flatMap(_.params).map(_.tpt.tpe.dealias)
+          val pNames = t.fun.termParamss.flatMap(_.params).map(_.name)
+          val rType = t.fun.returnTpt.tpe.dealias
+          Refinement(
+            acc,
+            t.fun.name,
+            MethodType(pNames)(_ => pTypes, _ => rType)
+          )
+      }
+
+      val ascribed: Expr[Any] = refinedType.asType match {
+        case '[refined] => '{ $orcaExpr.asInstanceOf[refined] }
+      }
+
+      Block(typeDefs ++ funs :+ rest.asTerm, ascribed.asTerm).asExprOf[Any]
 
     case t: Term =>
       report.throwError("Expected statements, found " + t.show);
   }
 }
 
-inline def orka(inline code: Unit): Unit = ${ orkaImpl('code) }
+transparent inline def orka(inline code: Unit): Any = ${ orkaImpl('code) }

@@ -2,7 +2,7 @@ package orka
 import scala.quoted.*
 import scala.annotation.tailrec
 
-class OrkaParser(using val q: Quotes):
+class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
   import q.reflect.*
 
   // All arguments need to have the type Int
@@ -55,43 +55,10 @@ class OrkaParser(using val q: Quotes):
         None
     })
 
-  def dealiasDefDef(fun: DefDef): DefDef = {
-    val oldParamDefs: List[ValDef] = fun.termParamss.flatMap(_.params)
-    val oldParams: List[Symbol] = oldParamDefs.map(_.symbol)
-    val paramNames: List[String] = oldParamDefs.map(_.name)
-    val paramTypes: List[TypeRepr] = oldParamDefs.map(_.tpt.tpe.dealias)
-    val resultType: TypeRepr = fun.returnTpt.tpe.dealias
-
-    val newSym = Symbol.newMethod(
-      Symbol.spliceOwner,
-      fun.name,
-      MethodType(paramNames)(_ => paramTypes, _ => resultType)
-    )
-    val oldRhs = fun.rhs.getOrElse {
-      report.errorAndAbort(s"Method ${fun.name} has no body", fun.pos)
-    }
-    val newParams: List[Symbol] = newSym.paramSymss.flatten
-
-    // Swap references to the old params for references to the new ones
-    val substituter = new TreeMap {
-      override def transformTerm(tree: Term)(owner: Symbol): Term = tree match {
-        case ident: Ident =>
-          oldParams.indexOf(ident.symbol) match {
-            case -1 => super.transformTerm(tree)(owner)
-            case i  => Ref(newParams(i))
-          }
-        case _ => super.transformTerm(tree)(owner)
-      }
-    }
-
-    val newRhs = substituter.transformTerm(oldRhs.changeOwner(newSym))(newSym)
-
-    DefDef(newSym, _ => Some(newRhs))
-  }
-
   case class Place(
       name: String,
-      typ: String
+      typ: String,
+      td: TypeDef
   )
 
   case class Transition(
@@ -142,14 +109,14 @@ class OrkaParser(using val q: Quotes):
               name,
               extractInputPlaces(args, places.map(_.name)),
               extractOutputPlaces(rets, places.map(_.name)),
-              dealiasDefDef(fun)
+              fun
             )
 
             parse(next, places, transitions :+ tr)
-          case TypeDef(name, t) =>
+          case td @ TypeDef(name, t) =>
             t match {
               case TypeIdent(typ) =>
-                parse(next, places :+ Place(name, typ), transitions)
+                parse(next, places :+ Place(name, typ, td), transitions)
               case t =>
                 report.error("Expected place type, found " + t.show, t.pos)
                 parse(next, places, transitions)

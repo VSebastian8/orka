@@ -55,20 +55,59 @@ class OrkaParser(using val q: Quotes):
         None
     })
 
+  def dealiasDefDef(fun: DefDef): DefDef = {
+    val oldParamDefs: List[ValDef] = fun.termParamss.flatMap(_.params)
+    val oldParams: List[Symbol] = oldParamDefs.map(_.symbol)
+    val paramNames: List[String] = oldParamDefs.map(_.name)
+    val paramTypes: List[TypeRepr] = oldParamDefs.map(_.tpt.tpe.dealias)
+    val resultType: TypeRepr = fun.returnTpt.tpe.dealias
+
+    val newSym = Symbol.newMethod(
+      Symbol.spliceOwner,
+      fun.name,
+      MethodType(paramNames)(_ => paramTypes, _ => resultType)
+    )
+    val oldRhs = fun.rhs.getOrElse {
+      report.errorAndAbort(s"Method ${fun.name} has no body", fun.pos)
+    }
+    val newParams: List[Symbol] = newSym.paramSymss.flatten
+
+    // Swap references to the old params for references to the new ones
+    val substituter = new TreeMap {
+      override def transformTerm(tree: Term)(owner: Symbol): Term = tree match {
+        case ident: Ident =>
+          oldParams.indexOf(ident.symbol) match {
+            case -1 => super.transformTerm(tree)(owner)
+            case i  => Ref(newParams(i))
+          }
+        case _ => super.transformTerm(tree)(owner)
+      }
+    }
+
+    val newRhs = substituter.transformTerm(oldRhs.changeOwner(newSym))(newSym)
+
+    DefDef(newSym, _ => Some(newRhs))
+  }
+
+  case class Place(
+      name: String,
+      typ: String
+  )
+
   case class Transition(
       name: String,
       inputPlaces: List[String],
       outputPlaces: List[String],
-      body: Term
+      fun: DefDef
   )
 
   // Parse the statements, extracting the places and transitions
   @tailrec
   final def parse(
       stats: List[Statement],
-      places: List[String],
+      places: List[Place],
       transitions: List[Transition]
-  ): (List[String], List[Transition]) =
+  ): (List[Place], List[Transition]) =
     stats match {
       case Nil => (places, transitions)
       case head :: next =>
@@ -101,18 +140,22 @@ class OrkaParser(using val q: Quotes):
 
             val tr = Transition(
               name,
-              extractInputPlaces(args, places),
-              extractOutputPlaces(rets, places),
-              body
+              extractInputPlaces(args, places.map(_.name)),
+              extractOutputPlaces(rets, places.map(_.name)),
+              dealiasDefDef(fun)
             )
 
             parse(next, places, transitions :+ tr)
-          case TypeDef(place, _) =>
-            parse(next, places :+ place, transitions)
+          case TypeDef(name, t) =>
+            t match {
+              case TypeIdent(typ) =>
+                parse(next, places :+ Place(name, typ), transitions)
+              case t =>
+                report.error("Expected place type, found " + t.show, t.pos)
+                parse(next, places, transitions)
+            }
           case t =>
-            report.errorAndAbort(
-              "Expected def method, found " + t.show,
-              t.pos
-            );
+            report.error("Expected def method, found " + t.show, t.pos)
+            parse(next, places, transitions)
         }
     }

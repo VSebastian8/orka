@@ -55,13 +55,13 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
         None
     })
 
-  case class Place(
+  case class PlaceData(
       name: String,
       typ: String,
       td: TypeDef
   )
 
-  case class Transition(
+  case class TransitionData(
       name: String,
       inputPlaces: List[String],
       outputPlaces: List[String],
@@ -72,9 +72,9 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
   @tailrec
   final def parse(
       stats: List[Statement],
-      places: List[Place],
-      transitions: List[Transition]
-  ): (List[Place], List[Transition]) =
+      places: List[PlaceData],
+      transitions: List[TransitionData]
+  ): (List[PlaceData], List[TransitionData]) =
     stats match {
       case Nil => (places, transitions)
       case head :: next =>
@@ -105,7 +105,7 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
               report.errorAndAbort(s"Method $name has no body", fun.pos)
             }
 
-            val tr = Transition(
+            val tr = TransitionData(
               name,
               extractInputPlaces(args, places.map(_.name)),
               extractOutputPlaces(rets, places.map(_.name)),
@@ -116,7 +116,7 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
           case td @ TypeDef(name, t) =>
             t match {
               case TypeIdent(typ) =>
-                parse(next, places :+ Place(name, typ, td), transitions)
+                parse(next, places :+ PlaceData(name, typ, td), transitions)
               case t =>
                 report.error("Expected place type, found " + t.show, t.pos)
                 parse(next, places, transitions)

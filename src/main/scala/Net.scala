@@ -4,6 +4,31 @@ import scala.quoted.*
 class OrkaNet[Q <: Quotes & Singleton](using val q: Q):
   import q.reflect.*
 
+  def debugNet(
+      places: List[OrkaParser[Q]#PlaceData],
+      transitions: List[OrkaParser[Q]#TransitionData]
+  ): Term =
+    '{
+      println("Places:\n" + ${
+        Expr(places.map(p => p.name + " :: " + p.typ).mkString("\n"))
+      })
+      println()
+      println(
+        "Transitions:\n" +
+          ${
+            Expr(
+              transitions
+                .map(tr =>
+                  tr.name +
+                    s" :: ${tr.inputPlaces.filterNot(_ == "").mkString(", ")} " +
+                    s"|->  ${tr.outputPlaces.filterNot(_ == "").mkString(", ")}"
+                )
+                .mkString("\n")
+            )
+          }
+      )
+    }.asTerm
+
   def buildAdapter(fun: DefDef): Expr[Seq[Any] => Any] = {
     val paramTypes = fun.termParamss.flatMap(_.params).map(_.tpt.tpe.dealias)
 

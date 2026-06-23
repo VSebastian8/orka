@@ -19,6 +19,6 @@ def orka_test(): Unit = {
       println(s"Result: $str")
     }
   }
-  println("Calling from outside macro")
-  orca.printer("something", ())
+  println()
+  orca.run(p1 = List(1, 2, 3), p2 = Nil, p3 = List("a", "b"))
 }

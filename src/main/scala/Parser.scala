@@ -55,6 +55,26 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
         None
     })
 
+  def prettyType(t: Tree): String =
+    t match {
+      case TypeIdent(typ) => typ
+      case Applied(x, types) =>
+        val name = x.symbol.name
+        if name.startsWith("Tuple")
+        then s"(${types.map(prettyType).mkString(", ")})"
+        else if name.startsWith("Function")
+        then
+          (if types.length > 2 then "(" else "")
+            + s"${types.init
+                .map(prettyType)
+                .mkString(", ")}"
+            + (if types.length > 2 then ")" else "")
+            + s" => ${prettyType(types.last)}"
+        else s"$name[${types.map(prettyType).mkString(", ")}]"
+      case t =>
+        report.errorAndAbort("Expected place type, found " + t.show, t.pos)
+    }
+
   case class PlaceData(
       name: String,
       typ: String,
@@ -79,6 +99,13 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
       case Nil => (places, transitions)
       case head :: next =>
         head match {
+          case td @ TypeDef(name, t) =>
+            parse(
+              next,
+              places :+ PlaceData(name, prettyType(t), td),
+              transitions
+            )
+
           case fun @ DefDef(name, params, returns, _) =>
             val args = params
               .flatMap {
@@ -113,14 +140,7 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
             )
 
             parse(next, places, transitions :+ tr)
-          case td @ TypeDef(name, t) =>
-            t match {
-              case TypeIdent(typ) =>
-                parse(next, places :+ PlaceData(name, typ, td), transitions)
-              case t =>
-                report.error("Expected place type, found " + t.show, t.pos)
-                parse(next, places, transitions)
-            }
+
           case t =>
             report.error("Expected def method, found " + t.show, t.pos)
             parse(next, places, transitions)

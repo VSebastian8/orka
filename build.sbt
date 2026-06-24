@@ -8,5 +8,8 @@ lazy val root = project
     scalaVersion := scala3Version,
     scalacOptions += "-Xprint:typer",
     logLevel := Level.Debug,
-    libraryDependencies += "org.scalameta" %% "munit" % "1.0.0" % Test
+    libraryDependencies += "org.scalameta" %% "munit" % "1.0.0" % Test,
+    testFrameworks += new TestFramework("munit.Framework"),
+    logLevel := Level.Error,
+    Test / testOptions += Tests.Argument("-q")
   )

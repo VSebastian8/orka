@@ -2,6 +2,7 @@ package orka
 import scala.quoted.*
 import scala.util.Random
 import scala.collection.immutable.Queue
+import scala.annotation.tailrec
 
 type Place = String
 
@@ -33,10 +34,11 @@ class Orka(
     if name == "run" then
       val tokens =
         places.zip(args.map(_.asInstanceOf[List[Any]]).map(Queue.from(_))).toMap
-      runOrka(tokens)
+      runOrka(tokens).map((place, toks) => (place, toks.toList))
     else elems(name)(args)
 
-  private def runOrka(tokens: Map[Place, Queue[Any]]): Unit =
+  @tailrec
+  private def runOrka(tokens: Map[Place, Queue[Any]]): Map[Place, Queue[Any]] =
     if (debug) {
       println()
       showTokens(tokens)
@@ -45,7 +47,7 @@ class Orka(
     val active = transitions.filter(canFire(tokens, _))
     if (active.length == 0) {
       println("\nDone!")
-      return ()
+      return tokens
     } else {
       if (debug) {
         println("\nActive transitions:")
@@ -128,7 +130,7 @@ class Orka(
     }
     val res = elems(trans.name)(toks)
     val xs: List[Any] = res match
-      case t: Tuple => t.toArray.toList
+      case t: Tuple if trans.outputPlaces.length > 1 => t.toArray.toList
       case x =>
         List(x)
     if (debug) {
@@ -213,7 +215,7 @@ def orkaImpl(code: Expr[Unit])(using q: Quotes): Expr[Any] = {
                 List(p.td.symbol.typeRef)
               )
             },
-          _ => TypeRepr.of[Unit]
+          _ => TypeRepr.of[Map[Place, List[Any]]]
         )
 
       val refinedType =

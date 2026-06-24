@@ -10,7 +10,11 @@ class OrkaNet[Q <: Quotes & Singleton](using val q: Q):
   ): Term =
     '{
       println("Places:\n" + ${
-        Expr(places.map(p => p.name + " :: " + p.typ).mkString("\n"))
+        Expr(
+          places
+            .map(p => p.name + " :: " + p.typ)
+            .mkString("\n")
+        )
       })
       println()
       println(

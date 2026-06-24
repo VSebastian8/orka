@@ -1,5 +1,7 @@
 package orka
 import scala.quoted.*
+import scala.util.Random
+import scala.collection.immutable.Queue
 
 type Place = String
 
@@ -24,19 +26,115 @@ given ToExpr[Transition] with
 class Orka(
     places: List[Place],
     transitions: List[Transition],
-    elems: Map[String, Seq[Any] => Any]
+    elems: Map[String, Seq[Any] => Any],
+    debug: Boolean
 ) extends Selectable:
-  def runOrka(tokens: Map[String, List[Any]]): Unit =
-    println("Tokens:")
-    println(tokens)
-    println("Transitions:")
-    println(transitions)
-
   def applyDynamic(name: String)(args: Any*): Any =
     if name == "run" then
-      val tokens = places.zip(args.map(_.asInstanceOf[List[Any]])).toMap
+      val tokens =
+        places.zip(args.map(_.asInstanceOf[List[Any]]).map(Queue.from(_))).toMap
       runOrka(tokens)
     else elems(name)(args)
+
+  private def runOrka(tokens: Map[Place, Queue[Any]]): Unit =
+    if (debug) {
+      println()
+      showTokens(tokens)
+    }
+
+    val active = transitions.filter(canFire(tokens, _))
+    if (active.length == 0) {
+      println("\nDone!")
+      return ()
+    } else {
+      if (debug) {
+        println("\nActive transitions:")
+        println(active.map(_.name).mkString(", "))
+      }
+
+      val tr = pickTransition(active)
+      val newTokens = fireTransition(tokens, tr)
+      runOrka(newTokens)
+    }
+
+  private def showTokens(tokens: Map[Place, Queue[Any]]): Unit =
+    println("Tokens:")
+    tokens.foreach { (place, toks) =>
+      println(s"$place: [${toks.mkString(", ")}]")
+    }
+
+  // Check if a transition can fire
+  private def canFire(
+      tokens: Map[Place, Queue[Any]],
+      transition: Transition
+  ): Boolean =
+    val frequencies: Map[Place, Int] =
+      transition.inputPlaces
+        .filterNot(_ == "")
+        .foldLeft(Map.empty.withDefaultValue(0))((freq, place) =>
+          freq.updatedWith(place)(v => v.map(_ + 1).orElse(Some(1)))
+        )
+    frequencies
+      .map((place, need) => tokens(place).length >= need)
+      .foldLeft(true)((res, b) => res && b)
+
+  // Pick one transition from the active ones based on their priority
+  private def pickTransition(
+      trans: List[Transition]
+  ): Transition =
+    val maxPriority = trans.map(_.priority).max
+    Random.shuffle(trans.filter(_.priority == maxPriority)).head
+
+  private def extractTokens(
+      tokens: Map[Place, Queue[Any]],
+      places: List[Place]
+  ): (Map[Place, Queue[Any]], Seq[Any]) =
+    places match
+      case Nil => (tokens, Nil)
+      case p :: placesRest => {
+        val (tok, toksRest) =
+          if (p == "") then ((), Queue.empty) else tokens(p).dequeue
+        val (newTokens, toks) =
+          extractTokens(
+            if (p == "") tokens else tokens.updated(p, toksRest),
+            placesRest
+          )
+        (newTokens, tok +: toks)
+      }
+
+  private def insertTokens(
+      tokens: Map[Place, Queue[Any]],
+      places: List[Place],
+      toks: List[Any]
+  ): Map[Place, Queue[Any]] = {
+    places
+      .zip(toks)
+      .foldLeft(tokens)((acc, pair) =>
+        if (pair(0) == "") acc
+        else acc.updatedWith(pair(0))(_.map(_.enqueue(pair(1))))
+      )
+  }
+
+  // Consume input tokens and create output tokens
+  private def fireTransition(
+      tokens: Map[Place, Queue[Any]],
+      trans: Transition
+  ): Map[Place, Queue[Any]] =
+    val (newTokens, toks) = extractTokens(tokens, trans.inputPlaces)
+    if (debug) {
+      println(
+        s"\nFire transition ${trans.name} with arguments (${toks.mkString(", ")})"
+      )
+    }
+    val res = elems(trans.name)(toks)
+    val xs: List[Any] = res match
+      case t: Tuple => t.toArray.toList
+      case x =>
+        List(x)
+    if (debug) {
+      println(s"Transition result: $xs")
+    }
+    insertTokens(newTokens, trans.outputPlaces, xs)
 
 def orkaImpl(code: Expr[Unit])(using q: Quotes): Expr[Any] = {
   import q.reflect.*
@@ -85,7 +183,7 @@ def orkaImpl(code: Expr[Unit])(using q: Quotes): Expr[Any] = {
       }
 
       val orcaExpr: Expr[Orka] = '{
-        Orka($placesExpr, $transitionsExpr, $mapExpr)
+        Orka($placesExpr, $transitionsExpr, $mapExpr, false)
       }
 
       val refinedTransitions =

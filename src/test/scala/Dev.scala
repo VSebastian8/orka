@@ -1,8 +1,10 @@
+// File for testing orka macro while developing
 package orka
 
 @main
-def hello(): Unit =
+def orka_test(): Unit =
   val orca = orka {
+    val verbosity = 3
     type p1 = Int
     type p2 = Int
     type p3 = String

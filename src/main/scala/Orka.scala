@@ -28,30 +28,35 @@ class Orka(
     places: List[Place],
     transitions: List[Transition],
     elems: Map[String, Seq[Any] => Any],
-    debug: Boolean
+    verbosity: Int
 ) extends Selectable:
   def applyDynamic(name: String)(args: Any*): Any =
     if name == "run" then
       val tokens =
         places.zip(args.map(_.asInstanceOf[List[Any]]).map(Queue.from(_))).toMap
+      if (verbosity > 1) {
+        println("Petri net started running!")
+        println()
+      }
       runOrka(tokens).map((place, toks) => (place, toks.toList))
     else elems(name)(args)
 
   @tailrec
   private def runOrka(tokens: Map[Place, Queue[Any]]): Map[Place, Queue[Any]] =
-    if (debug) {
-      println()
+    if (verbosity > 2) {
       showTokens(tokens)
     }
 
     val active = transitions.filter(canFire(tokens, _))
     if (active.length == 0) {
-      println("\nDone!")
+      if (verbosity > 1)
+        println("Petri net finished running!")
       return tokens
     } else {
-      if (debug) {
-        println("\nActive transitions:")
+      if (verbosity > 2) {
+        println("Active transitions:")
         println(active.map(_.name).mkString(", "))
+        println()
       }
 
       val tr = pickTransition(active)
@@ -64,6 +69,7 @@ class Orka(
     tokens.foreach { (place, toks) =>
       println(s"$place: [${toks.mkString(", ")}]")
     }
+    println()
 
   // Check if a transition can fire
   private def canFire(
@@ -123,18 +129,23 @@ class Orka(
       trans: Transition
   ): Map[Place, Queue[Any]] =
     val (newTokens, toks) = extractTokens(tokens, trans.inputPlaces)
-    if (debug) {
-      println(
-        s"\nFire transition ${trans.name} with arguments (${toks.mkString(", ")})"
-      )
+    if (verbosity > 1) {
+      print(s"Fire transition ${trans.name}")
+      if (verbosity > 2)
+        print(s" with tokens (${toks.mkString(", ")})")
+      println()
     }
     val res = elems(trans.name)(toks)
     val xs: List[Any] = res match
       case t: Tuple if trans.outputPlaces.length > 1 => t.toArray.toList
       case x =>
         List(x)
-    if (debug) {
-      println(s"Transition result: $xs")
+    if (verbosity > 1) {
+      print(s"Done transition ${trans.name}")
+      if (verbosity > 2)
+        print(s" with result (${xs.mkString(", ")})")
+      println()
+      println()
     }
     insertTokens(newTokens, trans.outputPlaces, xs)
 
@@ -145,11 +156,10 @@ def orkaImpl(code: Expr[Unit])(using q: Quotes): Expr[Any] = {
 
   code.asTerm match {
     case Inlined(_, _, Block(stats, _)) =>
-      val (places, transitions) =
+      val parser.ParserData(places, transitions, verbosity) =
         parser.parse(
           stats.asInstanceOf[List[Statement]],
-          List(),
-          List()
+          parser.ParserData(Nil, Nil, 0)
         )
 
       val typeDefs: List[Statement] =
@@ -185,7 +195,7 @@ def orkaImpl(code: Expr[Unit])(using q: Quotes): Expr[Any] = {
       }
 
       val orcaExpr: Expr[Orka] = '{
-        Orka($placesExpr, $transitionsExpr, $mapExpr, false)
+        Orka($placesExpr, $transitionsExpr, $mapExpr, ${ Expr(verbosity) })
       }
 
       val refinedTransitions =
@@ -230,8 +240,13 @@ def orkaImpl(code: Expr[Unit])(using q: Quotes): Expr[Any] = {
           case '[refined] =>
             '{ $orcaExpr.asInstanceOf[refined] }
 
+      val context =
+        if (verbosity > 0)
+        then typeDefs ++ funs :+ net.debugNet(places, transitions)
+        else typeDefs ++ funs
+
       Block(
-        typeDefs ++ funs :+ net.debugNet(places, transitions),
+        context,
         ascribed.asTerm
       ).asExprOf[Any]
 

@@ -88,22 +88,28 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
       fun: DefDef
   )
 
+  case class ParserData(
+      places: List[PlaceData],
+      transitions: List[TransitionData],
+      verbosity: Int
+  )
+
   // Parse the statements, extracting the places and transitions
   @tailrec
   final def parse(
       stats: List[Statement],
-      places: List[PlaceData],
-      transitions: List[TransitionData]
-  ): (List[PlaceData], List[TransitionData]) =
+      data: ParserData
+  ): ParserData =
     stats match {
-      case Nil => (places, transitions)
+      case Nil => data
       case head :: next =>
         head match {
           case td @ TypeDef(name, t) =>
             parse(
               next,
-              places :+ PlaceData(name, prettyType(t), td),
-              transitions
+              data.copy(places =
+                data.places :+ PlaceData(name, prettyType(t), td)
+              )
             )
 
           case fun @ DefDef(name, params, returns, _) =>
@@ -134,15 +140,41 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
 
             val tr = TransitionData(
               name,
-              extractInputPlaces(args, places.map(_.name)),
-              extractOutputPlaces(rets, places.map(_.name)),
+              extractInputPlaces(args, data.places.map(_.name)),
+              extractOutputPlaces(rets, data.places.map(_.name)),
               fun
             )
 
-            parse(next, places, transitions :+ tr)
+            parse(next, data.copy(transitions = data.transitions :+ tr))
+
+          case ValDef(name, tree, term) =>
+            if (name == "verbosity")
+            then
+              term match {
+                case Some(Literal(con))
+                    if List(0, 1, 2, 3).contains(con.value) =>
+                  parse(
+                    next,
+                    data.copy(verbosity = con.value.asInstanceOf[Int])
+                  )
+                case _ => {
+                  report.error(
+                    s"Wrong value for verbosity option, accepted int values: 0 | 1 | 2 | 3",
+                    tree.pos
+                  )
+                  parse(next, data)
+                }
+              }
+            else {
+              report.error(s"Unknown option ${name}", tree.pos)
+              parse(next, data)
+            }
 
           case t =>
-            report.error("Expected def method, found " + t.show, t.pos)
-            parse(next, places, transitions)
+            report.error(
+              "Expected place or transition definition, found " + t.show,
+              t.pos
+            )
+            parse(next, data)
         }
     }

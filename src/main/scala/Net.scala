@@ -9,7 +9,8 @@ class OrkaNet[Q <: Quotes & Singleton](using val q: Q):
       transitions: List[OrkaParser[Q]#TransitionData]
   ): Term =
     '{
-      println("Places:\n" + ${
+      println("Places:")
+      println(${
         Expr(
           places
             .map(p => p.name + " :: " + p.typ)
@@ -17,20 +18,21 @@ class OrkaNet[Q <: Quotes & Singleton](using val q: Q):
         )
       })
       println()
+      println("Transitions:")
       println(
-        "Transitions:\n" +
-          ${
-            Expr(
-              transitions
-                .map(tr =>
-                  tr.name +
-                    s" :: ${tr.inputPlaces.filterNot(_ == "").mkString(", ")} " +
-                    s"|->  ${tr.outputPlaces.filterNot(_ == "").mkString(", ")}"
-                )
-                .mkString("\n")
-            )
-          }
+        ${
+          Expr(
+            transitions
+              .map(tr =>
+                tr.name +
+                  s" :: ${tr.inputPlaces.filterNot(_ == "").mkString(", ")} " +
+                  s"|->  ${tr.outputPlaces.filterNot(_ == "").mkString(", ")}"
+              )
+              .mkString("\n")
+          )
+        }
       )
+      println()
     }.asTerm
 
   def buildAdapter(fun: DefDef): Expr[Seq[Any] => Any] = {

@@ -52,4 +52,24 @@ class OrkaTest extends FunSuite {
       List(("banana", 1), ("orange", 2), ("apple", 3))
     )
   }
+
+  test("filter") {
+    // Filter all even numbers from one place to the next
+    val net = orka {
+      val verbosity = 0
+      // The two Int places
+      type all = Int
+      type odd = Int
+      // Use optional output place to produce only odd tokens
+      def odd(x: all): Option[odd] =
+        if (x % 2 == 0)
+        then None
+        else Some(x)
+    }
+    // Run the net
+    val endToks = net.run(all = List(1, 2, 3, 4, 5, 6), odd = Nil)
+    // Petri Net has finished running
+    assertEquals(endToks("all"), Nil)
+    assertEquals(endToks("odd"), List(1, 3, 5))
+  }
 }

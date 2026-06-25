@@ -40,13 +40,25 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
   def extractOutputPlaces(
       rets: List[TypeTree],
       places: List[String]
-  ): List[String] =
+  ): List[(String, Boolean)] =
     rets.zipWithIndex.flatMap((ret, index) => {
       val place = ret.tpe.typeSymbol.name
       if place == "Unit"
-      then Some("")
+      then Some("", false)
+      else if place == "Option"
+      then
+        ret.asInstanceOf[Applied].args(0) match {
+          case TypeIdent(p) if places.contains(p) =>
+            Some((p, true))
+          case t =>
+            report.error(
+              s"Error for return type ${index}: required optional place, found ${prettyType(t)}",
+              t.pos
+            )
+            None
+        }
       else if places.contains(place)
-      then Some(place)
+      then Some((place, false))
       else
         report.error(
           s"Error for return type ${index}: required place, found $place",
@@ -84,7 +96,7 @@ class OrkaParser[Q <: Quotes & Singleton](using val q: Q):
   case class TransitionData(
       name: String,
       inputPlaces: List[String],
-      outputPlaces: List[String],
+      outputPlaces: List[(String, Boolean)], // place, optional
       fun: DefDef
   )
 

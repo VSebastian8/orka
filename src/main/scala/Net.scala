@@ -26,7 +26,7 @@ class OrkaNet[Q <: Quotes & Singleton](using val q: Q):
               .map(tr =>
                 tr.name +
                   s" :: ${tr.inputPlaces.filterNot(_ == "").mkString(", ")} " +
-                  s"|->  ${tr.outputPlaces.filterNot(_ == "").mkString(", ")}"
+                  s"|-> ${tr.outputPlaces.filterNot(_(0) == "").map((place, optional) => if optional then s"$place?" else place).mkString(", ")}"
               )
               .mkString("\n")
           )

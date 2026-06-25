@@ -10,7 +10,7 @@ case class Transition(
     name: String,
     priority: Int,
     inputPlaces: List[Place],
-    outputPlaces: List[Place]
+    outputPlaces: List[(Place, Boolean)]
 )
 
 given ToExpr[Transition] with
@@ -112,14 +112,22 @@ class Orka(
 
   private def insertTokens(
       tokens: Map[Place, Queue[Any]],
-      places: List[Place],
+      places: List[(Place, Boolean)],
       toks: List[Any]
   ): Map[Place, Queue[Any]] = {
     places
       .zip(toks)
       .foldLeft(tokens)((acc, pair) =>
-        if (pair(0) == "") acc
-        else acc.updatedWith(pair(0))(_.map(_.enqueue(pair(1))))
+        val ((place, optional), token) = pair
+        if (place == "")
+        then acc
+        else if optional
+        then
+          token.asInstanceOf[Option[Any]] match {
+            case None      => acc
+            case Some(tok) => acc.updatedWith(place)(_.map(_.enqueue(tok)))
+          }
+        else acc.updatedWith(place)(_.map(_.enqueue(token)))
       )
   }
 

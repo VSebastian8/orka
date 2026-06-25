@@ -9,11 +9,14 @@ def orka_test(): Unit =
     type p2 = Int
     type p3 = String
 
-    def producer1(x: p1): (p2, p2) =
-      (x, x)
+    def producer1(x: p1): (Option[p2], p2) =
+      (Some(x), x)
 
-    def producer2(x: p1): (p2, p2) =
-      (x, x + 10)
+    // Optional output place
+    def producer2(x: p1): (p2, Option[p2]) =
+      if (x % 2 == 0)
+      then (x, Some(x + 10))
+      else (x, None)
 
     def consumer(x: p2, y: p2): p3 = {
       s"$x == $y => ${x == y}"
